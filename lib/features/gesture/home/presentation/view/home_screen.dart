@@ -6,6 +6,7 @@ import '../../data/di/home_di.dart';
 import '../viewmodel/home_state.dart';
 import '../viewmodel/home_view_model.dart';
 import '../widgets/detection_stats_bar.dart';
+import '../widgets/gesture_alert_listener.dart';
 import '../widgets/gesture_labels.dart';
 import '../widgets/hand_overlay_painter.dart';
 
@@ -62,29 +63,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(homeViewModelProvider);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          _Preview(state: state),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  if (state.isRunning)
-                    DetectionStatsBar(
-                      detection: state.detection,
-                      analysisFps: state.analysisFps,
-                    ),
-                  const Spacer(),
-                  if (state.isRunning) const _Controls(),
-                ],
+    // Wraps the screen rather than sitting inside it: the listener has to stay
+    // mounted while the dialog is up, or a gesture could not close it.
+    return GestureAlertListener(
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            _Preview(state: state),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    if (state.isRunning)
+                      DetectionStatsBar(
+                        detection: state.detection,
+                        analysisFps: state.analysisFps,
+                      ),
+                    const Spacer(),
+                    if (state.isRunning) const _Controls(),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

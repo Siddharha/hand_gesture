@@ -241,7 +241,7 @@ Recognition emits events you can hang actions off, from anywhere in the app:
 
 ```dart
 ref.listen(gestureEventsProvider, (previous, next) {
-  final event = next.valueOrNull;
+  final event = next.value;
   if (event == null || !event.isBegan) return;
 
   switch (event.gesture) {

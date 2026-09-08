@@ -61,7 +61,7 @@ final handTrackingRepositoryProvider = Provider<HandTrackingRepository>(
 ///
 /// ```dart
 /// ref.listen(gestureEventsProvider, (previous, next) {
-///   final event = next.valueOrNull;
+///   final event = next.value;
 ///   if (event == null || !event.isBegan) return;
 ///   if (event.gesture == HandGesture.openPalm) doSomething();
 /// });
