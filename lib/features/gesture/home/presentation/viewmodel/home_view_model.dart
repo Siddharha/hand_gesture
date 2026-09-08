@@ -6,10 +6,12 @@ import '../../../../../core/error/failure.dart';
 import '../../../../../core/usecase/usecase.dart';
 import '../../data/di/home_di.dart';
 import '../../domain/entity/camera_session_entity.dart';
+import '../../domain/entity/gesture_event_entity.dart';
 import '../../domain/entity/hand_detection_entity.dart';
 import '../../domain/entity/hand_gesture_entity.dart';
 import '../../domain/usecase/recognize_hand_gesture_usecase.dart';
 import '../../domain/usecase/start_hand_tracking_usecase.dart';
+import 'gesture_event_tracker.dart';
 import 'gesture_stabilizer.dart';
 import 'home_state.dart';
 
@@ -24,6 +26,7 @@ class HomeViewModel extends Notifier<HomeState> {
   StreamSubscription<void>? _detections;
   DateTime? _lastDetectionAt;
   final GestureStabilizer _gestures = GestureStabilizer();
+  final GestureEventTracker _events = GestureEventTracker();
 
   /// Smoothing factor for the FPS readout. Low enough that the number is
   /// readable rather than flickering.
@@ -69,6 +72,9 @@ class HomeViewModel extends Notifier<HomeState> {
     _detections = null;
     _lastDetectionAt = null;
     _gestures.reset();
+    // Close out anything in flight, so a listener waiting on `ended` is not
+    // left believing a gesture is still held.
+    _publish(_events.reset());
 
     await ref.read(stopHandTrackingUseCaseProvider)(const NoParams());
     if (!ref.mounted) return;
@@ -90,6 +96,7 @@ class HomeViewModel extends Notifier<HomeState> {
     state = result.fold(
       onSuccess: (session) {
         _gestures.reset();
+        _publish(_events.reset());
         return state.copyWith(
           session: session,
           detection: const HandDetectionEntity.empty(),
@@ -123,11 +130,34 @@ class HomeViewModel extends Notifier<HomeState> {
   }
 
   void _onDetection(HandDetectionEntity detection) {
+    final poses = _recognize(detection);
+    _publish(_events.update(detection.hands, poses));
+
     state = state.copyWith(
       detection: detection,
-      poses: _recognize(detection),
+      poses: poses,
       analysisFps: _nextFps(),
     );
+  }
+
+  /// Pushes gesture transitions out to whoever is listening.
+  void _publish(List<GestureEventEntity> events) {
+    if (events.isEmpty) return;
+
+    final sink = ref.read(gestureEventSinkProvider);
+
+    for (final event in events) {
+      if (!sink.isClosed) sink.add(event);
+
+      // print rather than the logger: dart:developer output does not reach adb
+      // logcat, and seeing events land on a device is the whole point while
+      // wiring an action up. Compiled out of release builds with the assert.
+      assert(() {
+        // ignore: avoid_print
+        print('Gesture: $event');
+        return true;
+      }());
+    }
   }
 
   /// Names the shape of each hand, then smooths it. Cheap enough to run inline:

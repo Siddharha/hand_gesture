@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../../core/di/core_providers.dart';
 import '../../domain/datasource/camera_datasource.dart';
+import '../../domain/entity/gesture_event_entity.dart';
 import '../../domain/datasource/hand_detection_datasource.dart';
 import '../../domain/repository/hand_tracking_repository.dart';
 import '../../domain/usecase/observe_hand_detections_usecase.dart';
@@ -50,6 +53,34 @@ final handTrackingRepositoryProvider = Provider<HandTrackingRepository>(
     logger: ref.watch(appLoggerProvider),
   ),
 );
+
+/// Gesture events, for driving actions.
+///
+/// Emitted on transitions only - one `began` when a shape appears and one
+/// `ended` when it goes, with how long it was held. Listen from anywhere:
+///
+/// ```dart
+/// ref.listen(gestureEventsProvider, (previous, next) {
+///   final event = next.valueOrNull;
+///   if (event == null || !event.isBegan) return;
+///   if (event.gesture == HandGesture.openPalm) doSomething();
+/// });
+/// ```
+///
+/// A broadcast stream, so events raised while nothing is listening are simply
+/// dropped rather than queued up for a listener that may never arrive.
+final gestureEventsProvider = StreamProvider<GestureEventEntity>(
+  (ref) => ref.watch(gestureEventSinkProvider).stream,
+);
+
+/// Where the view model publishes. Consumers should watch
+/// [gestureEventsProvider] instead of touching this.
+final gestureEventSinkProvider =
+    Provider<StreamController<GestureEventEntity>>((ref) {
+  final controller = StreamController<GestureEventEntity>.broadcast();
+  ref.onDispose(controller.close);
+  return controller;
+});
 
 /// Pure logic over landmarks the caller already has, so it needs nothing
 /// injected and never fails.

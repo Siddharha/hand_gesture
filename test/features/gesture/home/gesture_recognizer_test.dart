@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:hand_gesture/features/gesture/home/domain/entity/hand_entity.dart';
@@ -106,6 +108,42 @@ HandEntity buildHand({
     landmarks: points,
     handedness: Handedness.right,
     score: 1,
+  );
+}
+
+/// Moves a hand around the frame without changing its shape: mirrors it to the
+/// other hand, spins it, resizes it, shifts it. Every gesture reading should
+/// survive all of these — that is the whole point of measuring ratios.
+HandEntity transform(
+  HandEntity hand, {
+  double rotation = 0,
+  double scale = 1,
+  double dx = 0,
+  double dy = 0,
+  bool mirror = false,
+}) {
+  const cx = 0.5;
+  const cy = 0.5;
+  final cos = math.cos(rotation);
+  final sin = math.sin(rotation);
+
+  return HandEntity(
+    landmarks: [
+      for (final point in hand.landmarks)
+        () {
+          final x = mirror ? (1 - point.x) : point.x;
+          final ox = x - cx;
+          final oy = point.y - cy;
+          return HandLandmarkEntity(
+            x: cx + (ox * cos - oy * sin) * scale + dx,
+            y: cy + (ox * sin + oy * cos) * scale + dy,
+            z: point.z,
+          );
+        }(),
+    ],
+    // Mirroring a right hand produces a left one.
+    handedness: mirror ? Handedness.left : hand.handedness,
+    score: hand.score,
   );
 }
 
@@ -237,5 +275,108 @@ void main() {
     );
 
     expect(recognize(truncated).gesture, HandGesture.unknown);
+  });
+
+  group('works regardless of whose hand, or how it is held', () {
+    test('a left hand reads the same as a right one', () {
+      final right = buildHand(index: true, middle: true);
+      final left = transform(right, mirror: true);
+
+      expect(recognize(left).gesture, HandGesture.two);
+      expect(recognize(left).extendedCount, 2);
+      expect(recognize(left).gesture, recognize(right).gesture);
+    });
+
+    test('any in-plane rotation reads the same', () {
+      final hand = buildHand(index: true, middle: true);
+
+      for (var degrees = 0; degrees < 360; degrees += 30) {
+        final turned = transform(hand, rotation: degrees * math.pi / 180);
+        expect(
+          recognize(turned).gesture,
+          HandGesture.two,
+          reason: 'rotated $degrees degrees',
+        );
+      }
+    });
+
+    test('hand size and distance from the camera do not matter', () {
+      final hand = buildHand(index: true, middle: true, ring: true, pinky: true);
+
+      // A small hand far away, and a large one filling the frame.
+      for (final scale in [0.25, 0.5, 1.0, 1.8]) {
+        expect(
+          recognize(transform(hand, scale: scale)).gesture,
+          HandGesture.four,
+          reason: 'scaled ${scale}x',
+        );
+      }
+    });
+
+    test('position in the frame does not matter', () {
+      final hand = buildHand(thumb: true, index: true, middle: true, ring: true, pinky: true);
+
+      for (final (dx, dy) in [(-0.3, -0.3), (0.3, -0.2), (0.25, 0.05)]) {
+        expect(
+          recognize(transform(hand, scale: 0.5, dx: dx, dy: dy)).gesture,
+          HandGesture.openPalm,
+          reason: 'moved by ($dx, $dy)',
+        );
+      }
+    });
+
+    test('a left hand, rotated, small and off-centre, still reads', () {
+      final hand = buildHand(index: true);
+      final awkward = transform(
+        hand,
+        mirror: true,
+        rotation: 2.1,
+        scale: 0.4,
+        dx: 0.22,
+        dy: -0.18,
+      );
+
+      expect(recognize(awkward).gesture, HandGesture.one);
+    });
+  });
+
+  group('known limits', () {
+    test('thumbs up and down are screen-relative, by design', () {
+      // Every other reading is rotation-invariant, but "up" is only meaningful
+      // relative to the screen, so turning the hand over flips the answer.
+      final up = buildHand(thumb: true);
+      expect(recognize(up).gesture, HandGesture.thumbsUp);
+
+      final inverted = transform(up, rotation: math.pi);
+      expect(recognize(inverted).gesture, HandGesture.thumbsDown);
+    });
+
+    test('a finger curling toward the camera can read as extended', () {
+      // The real limit of a 2D measure, and not the one you would guess.
+      // Straightness is chord over projected arc, which is what makes it
+      // immune to hand size and distance - but it also means it cannot see
+      // foreshortening at all. A finger curling directly toward the lens still
+      // projects onto a straight line, just a shorter one, so it reads as
+      // extended. Gestures have to be made roughly face-on to the camera.
+      final hand = buildHand(index: true, middle: true);
+      final points = [...hand.landmarks];
+
+      // Collinear in projection, but bunched up: a finger aimed at the camera.
+      const x = 0.44;
+      points[HandLandmarkType.indexPip.index] =
+          const HandLandmarkEntity(x: x, y: 0.55, z: 0);
+      points[HandLandmarkType.indexDip.index] =
+          const HandLandmarkEntity(x: x, y: 0.53, z: 0);
+      points[HandLandmarkType.indexTip.index] =
+          const HandLandmarkEntity(x: x, y: 0.52, z: 0);
+
+      final foreshortened = HandEntity(
+        landmarks: points,
+        handedness: hand.handedness,
+        score: hand.score,
+      );
+
+      expect(recognize(foreshortened).isExtended(Finger.indexFinger), isTrue);
+    });
   });
 }

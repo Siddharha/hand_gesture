@@ -235,9 +235,73 @@ Raw per-frame classification flickers at ~26fps, so
 holds a label until a new one has been seen for three consecutive frames —
 about a tenth of a second, per hand.
 
-The thresholds are named constants at the top of the use case. They are checked
-against synthetic hands in `test/features/gesture/home/gesture_recognizer_test.dart`;
-if real hands read wrong at the margins, those constants are the dials.
+### Reacting to gestures
+
+Recognition emits events you can hang actions off, from anywhere in the app:
+
+```dart
+ref.listen(gestureEventsProvider, (previous, next) {
+  final event = next.valueOrNull;
+  if (event == null || !event.isBegan) return;
+
+  switch (event.gesture) {
+    case HandGesture.openPalm: pause();
+    case HandGesture.two:      nextTrack();
+    case _:                    break;
+  }
+});
+```
+
+Events fire on **transitions, not frames**: a shape held for two seconds
+produces one `began` and one `ended`, so an action runs once instead of sixty
+times. The `ended` event carries `heldFor`, which is what "hold to confirm"
+needs:
+
+```dart
+if (event.isEnded && event.gesture == HandGesture.fist &&
+    event.heldFor > const Duration(seconds: 1)) {
+  confirm();
+}
+```
+
+Each event also carries `handIndex` and `handedness`, so two hands can drive
+different actions, and `isNamed` to filter out bare finger counts. A hand
+leaving the frame ends whatever it was holding, so a listener waiting on `ended`
+is never left hanging — likewise when the camera stops or the lens is switched.
+
+The stream is a broadcast: events raised while nothing is listening are dropped
+rather than queued for a listener that may never arrive. For continuous
+tracking rather than transitions, read `HomeState.poses` instead. Debug builds
+print every event to `adb logcat -s flutter:I`.
+
+Moving between two shapes passes through others on the way, so short-lived
+events do occur - a hand going from "OK" to a fist may report a 200ms "Four".
+Either ignore brief ones (`event.heldFor`, on `ended`), or raise
+`GestureStabilizer.framesToConfirm` to make a shape settle for longer before it
+counts at all.
+
+**What it is independent of**, each asserted in
+`test/features/gesture/home/gesture_recognizer_test.dart` by transforming a
+synthetic hand and re-reading it: left vs right hand, hand size, distance from
+the camera, position in the frame, and any in-plane rotation.
+
+**What it is not:**
+
+- *Fingers pointing at or away from the camera.* Only x and y are used — the
+  model's z is too noisy to trust. Straightness is chord over *projected* arc,
+  which is exactly what makes it immune to hand size and distance, but it also
+  means foreshortening is invisible: a finger curling toward the lens still
+  projects onto a straight line and reads as extended. Gestures have to be made
+  roughly face-on.
+- *Thumbs up vs down is screen-relative*, deliberately — "up" has no meaning
+  except relative to the frame, so turning the hand over flips the answer while
+  every other reading is rotation-invariant.
+- *Whatever the landmark model gets wrong upstream.* Poor light, motion blur or
+  a heavily occluded hand produce bad landmarks, and no amount of geometry
+  downstream can recover them.
+
+The thresholds are named constants at the top of the use case; if real hands
+read wrong at the margins, those are the dials.
 
 ### Two things the models do differently from stock MediaPipe
 
