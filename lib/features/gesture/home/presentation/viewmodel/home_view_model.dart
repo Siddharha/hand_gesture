@@ -87,6 +87,7 @@ class HomeViewModel extends Notifier<HomeState> {
       status: CameraStatus.idle,
       detection: const HandDetectionEntity.empty(),
       poses: const <HandPoseEntity?>[],
+      confidences: const <double?>[],
       analysisFps: 0,
     );
   }
@@ -106,6 +107,7 @@ class HomeViewModel extends Notifier<HomeState> {
           session: session,
           detection: const HandDetectionEntity.empty(),
           poses: const <HandPoseEntity?>[],
+          confidences: const <double?>[],
           clearFailure: true,
         );
       },
@@ -135,12 +137,13 @@ class HomeViewModel extends Notifier<HomeState> {
   }
 
   void _onDetection(HandDetectionEntity detection) {
-    final poses = _recognize(detection);
-    _publish(_events.update(detection.hands, poses));
+    final read = _recognize(detection);
+    _publish(_events.update(detection.hands, read.poses));
 
     state = state.copyWith(
       detection: detection,
-      poses: poses,
+      poses: read.poses,
+      confidences: read.confidences,
       analysisFps: _nextFps(),
     );
   }
@@ -169,14 +172,19 @@ class HomeViewModel extends Notifier<HomeState> {
   /// a few dozen distance comparisons against landmarks already in hand.
   ///
   /// A hand is only named once its skeleton has passed the structure check
-  /// several frames running. Until then it comes back as `null` — drawn, but
-  /// unnamed and silent — because a gesture read off a broken skeleton is a
+  /// several frames running. Until then its pose comes back as `null` — drawn,
+  /// but unnamed and silent — because a gesture read off a broken skeleton is a
   /// wrong answer, and a wrong answer fires an event that something acts on.
-  List<HandPoseEntity?> _recognize(HandDetectionEntity detection) {
+  ///
+  /// The confidences returned alongside are the gate's, not this frame's: each
+  /// is the score from the frame that admitted that hand.
+  ({List<HandPoseEntity?> poses, List<double?> confidences}) _recognize(
+    HandDetectionEntity detection,
+  ) {
     if (detection.hands.isEmpty) {
       _gestures.reset();
       _structure.reset();
-      return const <HandPoseEntity?>[];
+      return (poses: const <HandPoseEntity?>[], confidences: const <double?>[]);
     }
 
     // The landmarks are normalised per axis, so both checking a hand and
@@ -185,19 +193,22 @@ class HomeViewModel extends Notifier<HomeState> {
     final validate = ref.read(validateHandStructureUseCaseProvider);
     final recognize = ref.read(recognizeHandGestureUseCaseProvider);
 
-    final trusted = _structure.admit([
+    final confidences = _structure.admit([
       for (final hand in detection.hands)
-        validate(
-          ValidateHandStructureParams(
-            hand: hand,
-            frameAspectRatio: aspectRatio,
+        (
+          isValid: validate(
+            ValidateHandStructureParams(
+              hand: hand,
+              frameAspectRatio: aspectRatio,
+            ),
           ),
+          confidence: hand.score,
         ),
     ]);
 
-    return _gestures.stabilize([
+    final poses = _gestures.stabilize([
       for (var i = 0; i < detection.hands.length; i++)
-        if (trusted[i])
+        if (confidences[i] != null)
           recognize(
             RecognizeHandGestureParams(
               hand: detection.hands[i],
@@ -207,6 +218,8 @@ class HomeViewModel extends Notifier<HomeState> {
         else
           null,
     ]);
+
+    return (poses: poses, confidences: confidences);
   }
 
   /// Exponential moving average over the gaps between analysed frames.

@@ -162,7 +162,11 @@ class _LivePreview extends ConsumerWidget {
               ),
               // Inside the same box as the preview, so a label anchored in
               // normalised coordinates lands on its hand.
-              GestureLabels(hands: state.detection.hands, poses: state.poses),
+              GestureLabels(
+                hands: state.detection.hands,
+                poses: state.poses,
+                confidences: state.confidences,
+              ),
             ],
           ],
         ),

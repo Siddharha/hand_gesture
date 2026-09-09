@@ -27,6 +27,7 @@ class HomeState {
     this.session,
     this.detection = const HandDetectionEntity.empty(),
     this.poses = const <HandPoseEntity?>[],
+    this.confidences = const <double?>[],
     this.failure,
     this.showOverlay = true,
     this.analysisFps = 0,
@@ -45,6 +46,14 @@ class HomeState {
   /// `null` where a hand is on screen but not yet trusted: its skeleton has
   /// not held together for enough frames to name a shape from.
   final List<HandPoseEntity?> poses;
+
+  /// How confident the model was about each hand on the frame that admitted
+  /// it, index-aligned with `detection.hands` and `null` wherever [poses] is.
+  ///
+  /// The frame the gate decided on, not the current one: the number is the
+  /// evidence the hand was trusted on, so it holds still while the hand is
+  /// held rather than twitching every frame.
+  final List<double?> confidences;
 
   final Failure? failure;
   final bool showOverlay;
@@ -65,6 +74,7 @@ class HomeState {
     CameraSessionEntity? session,
     HandDetectionEntity? detection,
     List<HandPoseEntity?>? poses,
+    List<double?>? confidences,
     Failure? failure,
     bool? showOverlay,
     double? analysisFps,
@@ -75,6 +85,7 @@ class HomeState {
       session: session ?? this.session,
       detection: detection ?? this.detection,
       poses: poses ?? this.poses,
+      confidences: confidences ?? this.confidences,
       failure: clearFailure ? null : (failure ?? this.failure),
       showOverlay: showOverlay ?? this.showOverlay,
       analysisFps: analysisFps ?? this.analysisFps,

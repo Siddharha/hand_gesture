@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../domain/entity/hand_entity.dart';
 import '../../domain/entity/hand_gesture_entity.dart';
 
-/// Names each hand's shape, pinned just above the hand it describes.
+/// Names each hand's shape and the confidence it was trusted on, pinned just
+/// above the hand it describes.
 ///
 /// Anchored per hand rather than shown in one corner: with two hands on screen
 /// a single label cannot say which is which, and the answer is only useful next
@@ -13,14 +14,20 @@ class GestureLabels extends StatelessWidget {
     super.key,
     required this.hands,
     required this.poses,
+    required this.confidences,
   });
 
   final List<HandEntity> hands;
 
-  /// Index-aligned with [hands]; a shorter list simply labels fewer of them,
-  /// and a `null` entry leaves that hand unlabelled — it is on screen but not
-  /// yet trusted enough to name a shape from.
+  /// Index-aligned with [hands]; a `null` entry leaves that hand unlabelled —
+  /// it is on screen but its structure has not held together for long enough
+  /// to name a shape from.
   final List<HandPoseEntity?> poses;
+
+  /// Index-aligned with [hands]: how confident the model was on the frame that
+  /// admitted each hand. Not the live per-frame score — a number that changes
+  /// every frame cannot be read, and this one is what the decision rested on.
+  final List<double?> confidences;
 
   /// Roughly the label's height in normalised units, used to lift it clear of
   /// the fingertips.
@@ -52,7 +59,11 @@ class GestureLabels extends StatelessWidget {
               top: anchorY * constraints.maxHeight,
               child: FractionalTranslation(
                 translation: const Offset(-0.5, 0),
-                child: _Chip(pose: pose, handedness: hands[i].handedness),
+                child: _Chip(
+                  pose: pose,
+                  handedness: hands[i].handedness,
+                  confidence: i < confidences.length ? confidences[i] : null,
+                ),
               ),
             ),
           );
@@ -65,19 +76,30 @@ class GestureLabels extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.pose, required this.handedness});
+  const _Chip({
+    required this.pose,
+    required this.handedness,
+    required this.confidence,
+  });
 
   final HandPoseEntity pose;
   final Handedness handedness;
 
+  /// The score from the frame this hand was admitted on, in `[0, 1]`.
+  final double? confidence;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hand = switch (handedness) {
-      Handedness.left => 'Left',
-      Handedness.right => 'Right',
-      Handedness.unknown => null,
-    };
+    final details = <String>[
+      switch (handedness) {
+        Handedness.left => 'Left',
+        Handedness.right => 'Right',
+        Handedness.unknown => '',
+      },
+      '${pose.extendedCount}',
+      if (confidence != null) '${(confidence! * 100).toStringAsFixed(0)}%',
+    ]..removeWhere((part) => part.isEmpty);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -97,11 +119,10 @@ class _Chip extends StatelessWidget {
                 height: 1.1,
               ),
             ),
-            if (hand != null)
-              Text(
-                '$hand · ${pose.extendedCount}',
-                style: theme.textTheme.labelSmall?.copyWith(color: Colors.white70),
-              ),
+            Text(
+              details.join(' · '),
+              style: theme.textTheme.labelSmall?.copyWith(color: Colors.white70),
+            ),
           ],
         ),
       ),
