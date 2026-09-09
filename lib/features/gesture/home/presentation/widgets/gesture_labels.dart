@@ -17,8 +17,10 @@ class GestureLabels extends StatelessWidget {
 
   final List<HandEntity> hands;
 
-  /// Index-aligned with [hands]; a shorter list simply labels fewer of them.
-  final List<HandPoseEntity> poses;
+  /// Index-aligned with [hands]; a shorter list simply labels fewer of them,
+  /// and a `null` entry leaves that hand unlabelled — it is on screen but not
+  /// yet trusted enough to name a shape from.
+  final List<HandPoseEntity?> poses;
 
   /// Roughly the label's height in normalised units, used to lift it clear of
   /// the fingertips.
@@ -33,8 +35,10 @@ class GestureLabels extends StatelessWidget {
         final children = <Widget>[];
 
         for (var i = 0; i < hands.length && i < poses.length; i++) {
-          final bounds = hands[i].bounds;
           final pose = poses[i];
+          if (pose == null) continue;
+
+          final bounds = hands[i].bounds;
 
           // Above the hand, unless that would run off the top of the frame.
           final top = bounds.top - _verticalOffset;

@@ -8,6 +8,11 @@ import '../../domain/entity/hand_gesture_entity.dart';
 /// one. A new shape has to hold for [framesToConfirm] frames before it is
 /// shown, which costs about a tenth of a second and removes the noise.
 ///
+/// A `null` in place of a pose means the hand is there but not to be read —
+/// its structure has not held long enough to be trusted. It clears the slot
+/// rather than smoothing, so a rejected hand shows nothing at all instead of
+/// the last shape it was seen making.
+///
 /// State is kept per hand slot, so two hands are smoothed independently.
 class GestureStabilizer {
   GestureStabilizer({this.framesToConfirm = 3});
@@ -16,14 +21,14 @@ class GestureStabilizer {
   final List<_Slot> _slots = [];
 
   /// Returns the poses to display, given this frame's raw classifications.
-  List<HandPoseEntity> stabilize(List<HandPoseEntity> poses) {
+  List<HandPoseEntity?> stabilize(List<HandPoseEntity?> poses) {
     // A hand that went away takes its history with it; reusing the slot for a
     // different hand would smear one hand's gesture onto another.
     if (_slots.length > poses.length) {
       _slots.removeRange(poses.length, _slots.length);
     }
 
-    final stable = <HandPoseEntity>[];
+    final stable = <HandPoseEntity?>[];
     for (var i = 0; i < poses.length; i++) {
       if (i >= _slots.length) {
         // First sight of this hand: show it straight away rather than making
@@ -45,11 +50,29 @@ class GestureStabilizer {
 class _Slot {
   _Slot(this.reported);
 
-  HandPoseEntity reported;
+  HandPoseEntity? reported;
   HandPoseEntity? candidate;
   int candidateFrames = 0;
 
-  HandPoseEntity update(HandPoseEntity pose, int framesToConfirm) {
+  HandPoseEntity? update(HandPoseEntity? pose, int framesToConfirm) {
+    // Nothing to report, and nothing worth remembering: whatever the hand does
+    // next has to earn its own place.
+    if (pose == null) {
+      reported = null;
+      candidate = null;
+      candidateFrames = 0;
+      return null;
+    }
+
+    // Coming back from nothing is a first sight, shown immediately for the
+    // same reason a new hand is.
+    if (reported == null) {
+      reported = pose;
+      candidate = null;
+      candidateFrames = 0;
+      return pose;
+    }
+
     if (pose == reported) {
       candidate = null;
       candidateFrames = 0;

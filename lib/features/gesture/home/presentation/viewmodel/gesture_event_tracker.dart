@@ -8,44 +8,61 @@ import '../../domain/entity/hand_gesture_entity.dart';
 /// running it on raw classifications would fire several times a second as a
 /// finger hovers on a threshold.
 ///
+/// A `null` in place of a pose means the hand is not to be read this frame —
+/// its structure has not held together long enough to be trusted. Nothing
+/// begins on a slot like that, and anything already in flight there ends, so a
+/// listener never acts on a hand the tracker is unsure of.
+///
 /// State is per hand slot, so two hands raise and drop gestures independently.
 class GestureEventTracker {
-  final List<_Active> _active = [];
+  /// One entry per hand slot; `null` where the slot holds no gesture.
+  final List<_Active?> _active = [];
 
   /// Compares this frame against the last and returns what changed.
   List<GestureEventEntity> update(
     List<HandEntity> hands,
-    List<HandPoseEntity> poses,
+    List<HandPoseEntity?> poses,
   ) {
     final now = DateTime.now();
     final events = <GestureEventEntity>[];
     final count = hands.length < poses.length ? hands.length : poses.length;
 
     for (var i = 0; i < count; i++) {
-      final pose = poses[i];
-      final handedness = hands[i].handedness;
+      if (i >= _active.length) _active.add(null);
 
-      if (i >= _active.length) {
-        _active.add(_Active(pose, handedness, now));
-        events.add(_began(pose, handedness, i, now));
+      final pose = poses[i];
+      final active = _active[i];
+
+      // Withheld: end what was held, and start nothing.
+      if (pose == null) {
+        if (active != null) {
+          events.add(_ended(active, i, now));
+          _active[i] = null;
+        }
         continue;
       }
 
-      final active = _active[i];
+      if (active == null) {
+        _active[i] = _Active(pose, hands[i].handedness, now);
+        events.add(_began(pose, hands[i].handedness, i, now));
+        continue;
+      }
+
       if (active.pose == pose) continue;
 
       // A change is an end and a start, in that order, so a listener that
       // reacts to `ended` sees the old shape before the new one arrives.
       events
         ..add(_ended(active, i, now))
-        ..add(_began(pose, handedness, i, now));
-      _active[i] = _Active(pose, handedness, now);
+        ..add(_began(pose, hands[i].handedness, i, now));
+      _active[i] = _Active(pose, hands[i].handedness, now);
     }
 
     // Hands that left the frame end whatever they were holding, otherwise a
     // listener waiting for `ended` would wait forever.
     for (var i = _active.length - 1; i >= count; i--) {
-      events.add(_ended(_active[i], i, now));
+      final active = _active[i];
+      if (active != null) events.add(_ended(active, i, now));
       _active.removeAt(i);
     }
 
@@ -56,9 +73,11 @@ class GestureEventTracker {
   /// where gestures do not carry over.
   List<GestureEventEntity> reset() {
     final now = DateTime.now();
-    final events = [
-      for (var i = 0; i < _active.length; i++) _ended(_active[i], i, now),
-    ];
+    final events = <GestureEventEntity>[];
+    for (var i = 0; i < _active.length; i++) {
+      final active = _active[i];
+      if (active != null) events.add(_ended(active, i, now));
+    }
     _active.clear();
     return events;
   }

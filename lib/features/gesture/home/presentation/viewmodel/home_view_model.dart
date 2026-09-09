@@ -11,8 +11,10 @@ import '../../domain/entity/hand_detection_entity.dart';
 import '../../domain/entity/hand_gesture_entity.dart';
 import '../../domain/usecase/recognize_hand_gesture_usecase.dart';
 import '../../domain/usecase/start_hand_tracking_usecase.dart';
+import '../../domain/usecase/validate_hand_structure_usecase.dart';
 import 'gesture_event_tracker.dart';
 import 'gesture_stabilizer.dart';
+import 'hand_structure_gate.dart';
 import 'home_state.dart';
 
 /// Owns the camera screen's state: start and stop the session, listen to
@@ -27,6 +29,7 @@ class HomeViewModel extends Notifier<HomeState> {
   DateTime? _lastDetectionAt;
   final GestureStabilizer _gestures = GestureStabilizer();
   final GestureEventTracker _events = GestureEventTracker();
+  final HandStructureGate _structure = HandStructureGate();
 
   /// Smoothing factor for the FPS readout. Low enough that the number is
   /// readable rather than flickering.
@@ -72,6 +75,7 @@ class HomeViewModel extends Notifier<HomeState> {
     _detections = null;
     _lastDetectionAt = null;
     _gestures.reset();
+    _structure.reset();
     // Close out anything in flight, so a listener waiting on `ended` is not
     // left believing a gesture is still held.
     _publish(_events.reset());
@@ -82,7 +86,7 @@ class HomeViewModel extends Notifier<HomeState> {
     state = state.copyWith(
       status: CameraStatus.idle,
       detection: const HandDetectionEntity.empty(),
-      poses: const <HandPoseEntity>[],
+      poses: const <HandPoseEntity?>[],
       analysisFps: 0,
     );
   }
@@ -96,11 +100,12 @@ class HomeViewModel extends Notifier<HomeState> {
     state = result.fold(
       onSuccess: (session) {
         _gestures.reset();
+        _structure.reset();
         _publish(_events.reset());
         return state.copyWith(
           session: session,
           detection: const HandDetectionEntity.empty(),
-          poses: const <HandPoseEntity>[],
+          poses: const <HandPoseEntity?>[],
           clearFailure: true,
         );
       },
@@ -162,22 +167,45 @@ class HomeViewModel extends Notifier<HomeState> {
 
   /// Names the shape of each hand, then smooths it. Cheap enough to run inline:
   /// a few dozen distance comparisons against landmarks already in hand.
-  List<HandPoseEntity> _recognize(HandDetectionEntity detection) {
+  ///
+  /// A hand is only named once its skeleton has passed the structure check
+  /// several frames running. Until then it comes back as `null` — drawn, but
+  /// unnamed and silent — because a gesture read off a broken skeleton is a
+  /// wrong answer, and a wrong answer fires an event that something acts on.
+  List<HandPoseEntity?> _recognize(HandDetectionEntity detection) {
     if (detection.hands.isEmpty) {
       _gestures.reset();
-      return const <HandPoseEntity>[];
+      _structure.reset();
+      return const <HandPoseEntity?>[];
     }
 
-    // The landmarks are normalised per axis, so naming a shape needs to know
-    // how the frame is shaped.
+    // The landmarks are normalised per axis, so both checking a hand and
+    // naming its shape need to know how the frame is shaped.
     final aspectRatio = state.session?.aspectRatio ?? 1.0;
+    final validate = ref.read(validateHandStructureUseCaseProvider);
     final recognize = ref.read(recognizeHandGestureUseCaseProvider);
 
-    return _gestures.stabilize([
+    final trusted = _structure.admit([
       for (final hand in detection.hands)
-        recognize(
-          RecognizeHandGestureParams(hand: hand, frameAspectRatio: aspectRatio),
+        validate(
+          ValidateHandStructureParams(
+            hand: hand,
+            frameAspectRatio: aspectRatio,
+          ),
         ),
+    ]);
+
+    return _gestures.stabilize([
+      for (var i = 0; i < detection.hands.length; i++)
+        if (trusted[i])
+          recognize(
+            RecognizeHandGestureParams(
+              hand: detection.hands[i],
+              frameAspectRatio: aspectRatio,
+            ),
+          )
+        else
+          null,
     ]);
   }
 

@@ -12,6 +12,7 @@ import '../../domain/usecase/recognize_hand_gesture_usecase.dart';
 import '../../domain/usecase/start_hand_tracking_usecase.dart';
 import '../../domain/usecase/stop_hand_tracking_usecase.dart';
 import '../../domain/usecase/switch_camera_usecase.dart';
+import '../../domain/usecase/validate_hand_structure_usecase.dart';
 import '../datasource/camera_datasource_impl.dart';
 import '../datasource/hand_pipeline.dart';
 import '../datasource/tflite_hand_detection_datasource.dart';
@@ -86,6 +87,13 @@ final gestureEventSinkProvider =
 /// injected and never fails.
 final recognizeHandGestureUseCaseProvider = Provider<RecognizeHandGestureUseCase>(
   (ref) => const RecognizeHandGestureUseCase(),
+);
+
+/// Structural sanity check on a set of landmarks, run before any gesture is
+/// named. Pure geometry, like the recogniser.
+final validateHandStructureUseCaseProvider =
+    Provider<ValidateHandStructureUseCase>(
+  (ref) => const ValidateHandStructureUseCase(),
 );
 
 final startHandTrackingUseCaseProvider = Provider<StartHandTrackingUseCase>(

@@ -132,4 +132,74 @@ void main() {
     expect(events, hasLength(1));
     expect(events.single.type, GestureEventType.began);
   });
+
+  group('a hand that is on screen but not trusted', () {
+    test('begins nothing while it is withheld', () {
+      final hands = [handWith(Handedness.right)];
+
+      expect(tracker.update(hands, [null]), isEmpty);
+      expect(tracker.update(hands, [null]), isEmpty);
+    });
+
+    test('ends what it was holding the moment it is withheld', () {
+      final hands = [handWith(Handedness.right)];
+      tracker.update(hands, [poseOf(HandGesture.openPalm)]);
+
+      final events = tracker.update(hands, [null]);
+
+      expect(events, hasLength(1));
+      expect(events.single.type, GestureEventType.ended);
+      expect(events.single.gesture, HandGesture.openPalm);
+
+      // And stays quiet rather than ending twice.
+      expect(tracker.update(hands, [null]), isEmpty);
+    });
+
+    test('begins again once it is trusted back', () {
+      final hands = [handWith(Handedness.right)];
+      tracker.update(hands, [poseOf(HandGesture.fist)]);
+      tracker.update(hands, [null]);
+
+      final events = tracker.update(hands, [poseOf(HandGesture.fist)]);
+
+      expect(events, hasLength(1));
+      expect(events.single.type, GestureEventType.began);
+      expect(events.single.gesture, HandGesture.fist);
+    });
+
+    test('does not disturb the trusted hand beside it', () {
+      final hands = [handWith(Handedness.left), handWith(Handedness.right)];
+      tracker.update(hands, [null, poseOf(HandGesture.two)]);
+
+      expect(tracker.update(hands, [null, poseOf(HandGesture.two)]), isEmpty);
+
+      // The first hand is trusted at the same moment the second is withheld.
+      final events = tracker.update(hands, [poseOf(HandGesture.one), null]);
+      expect(events, hasLength(2));
+      expect(events[0].type, GestureEventType.began);
+      expect(events[0].handIndex, 0);
+      expect(events[0].gesture, HandGesture.one);
+      expect(events[1].type, GestureEventType.ended);
+      expect(events[1].handIndex, 1);
+      expect(events[1].gesture, HandGesture.two);
+    });
+
+    test('leaving the frame while withheld ends nothing twice', () {
+      final hands = [handWith(Handedness.right)];
+      tracker.update(hands, [poseOf(HandGesture.one)]);
+      expect(tracker.update(hands, [null]), hasLength(1));
+
+      expect(tracker.update(const [], const []), isEmpty);
+    });
+
+    test('reset has nothing to close out for it', () {
+      final hands = [handWith(Handedness.left), handWith(Handedness.right)];
+      tracker.update(hands, [null, poseOf(HandGesture.three)]);
+
+      final events = tracker.reset();
+
+      expect(events, hasLength(1));
+      expect(events.single.handIndex, 1);
+    });
+  });
 }

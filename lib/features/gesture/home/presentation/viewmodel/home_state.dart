@@ -26,7 +26,7 @@ class HomeState {
     this.status = CameraStatus.idle,
     this.session,
     this.detection = const HandDetectionEntity.empty(),
-    this.poses = const <HandPoseEntity>[],
+    this.poses = const <HandPoseEntity?>[],
     this.failure,
     this.showOverlay = true,
     this.analysisFps = 0,
@@ -41,7 +41,10 @@ class HomeState {
 
   /// The shape each hand in [detection] is making, index-aligned with
   /// `detection.hands` and smoothed so the label does not flicker.
-  final List<HandPoseEntity> poses;
+  ///
+  /// `null` where a hand is on screen but not yet trusted: its skeleton has
+  /// not held together for enough frames to name a shape from.
+  final List<HandPoseEntity?> poses;
 
   final Failure? failure;
   final bool showOverlay;
@@ -61,7 +64,7 @@ class HomeState {
     CameraStatus? status,
     CameraSessionEntity? session,
     HandDetectionEntity? detection,
-    List<HandPoseEntity>? poses,
+    List<HandPoseEntity?>? poses,
     Failure? failure,
     bool? showOverlay,
     double? analysisFps,
